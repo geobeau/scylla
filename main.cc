@@ -1277,6 +1277,11 @@ int main(int ac, char** av) {
             auth_config.authorizer_java_name = qualified_authorizer_name;
             auth_config.authenticator_java_name = qualified_authenticator_name;
             auth_config.role_manager_java_name = qualified_role_manager_name;
+            auth_config.authenticator_config.rest_authenticator_endpoint_host = cfg->rest_authenticator_endpoint_host();
+            auth_config.authenticator_config.rest_authenticator_endpoint_port = cfg->rest_authenticator_endpoint_port();
+            auth_config.authenticator_config.rest_authenticator_endpoint_cafile_path = cfg->rest_authenticator_endpoint_cafile_path();
+            auth_config.authenticator_config.rest_authenticator_endpoint_ttl = cfg->rest_authenticator_endpoint_ttl();
+            auth_config.authenticator_config.rest_authenticator_endpoint_timeout = cfg->rest_authenticator_endpoint_timeout();
 
             auth_service.start(perm_cache_config, std::ref(qp), std::ref(mm_notifier), std::ref(mm), auth_config).get();
 
