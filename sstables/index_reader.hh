@@ -128,6 +128,9 @@ public:
         if (this->_remain > 0) {
             throw std::runtime_error("index_consume_entry_context - no more data but parsing is incomplete");
         }
+        if (_state != state::KEY_SIZE && _state != state::START) {
+            throw std::runtime_error(fmt::format("index_consume_entry_context - cannot finish currently parsed entry, no more data, _state={}", _state));
+        }
     }
 
     bool non_consuming() const {
