@@ -152,7 +152,7 @@ public:
         switch (_state) {
         // START comes first, to make the handling of the 0-quantity case simpler
         case state::START:
-            sstreaderlog.trace("{}: pos {} state {}", fmt::ptr(this), current_pos(), state::START);
+            sstreaderlog.trace("{}: pos {} state {} data={}", fmt::ptr(this), current_pos(), state::START, data.size());
             _state = state::KEY_SIZE;
             break;
         case state::KEY_SIZE:
@@ -163,7 +163,10 @@ public:
                 break;
             }
         case state::KEY_BYTES:
-            sstreaderlog.trace("{}: pos {} state {}", fmt::ptr(this), current_pos(), state::KEY_BYTES);
+            sstreaderlog.trace("{}: pos {} state {} size={}", fmt::ptr(this), current_pos(), state::KEY_BYTES, this->_u16);
+            if (this->_remain != -1) {
+                assert(this->_u16 <= this->_remain);
+            }
             if (this->read_bytes(data, this->_u16, _key) != continuous_data_consumer::read_status::ready) {
                 _state = state::POSITION;
                 break;
