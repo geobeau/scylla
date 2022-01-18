@@ -567,10 +567,13 @@ public:
         stats().last_mv_flow_control_delay = delay;
         if (delay.count() == 0) {
             tracing::trace(trace, "Delay decision due to throttling: do not delay, resuming now");
+            slogger.trace("Delay decision due to throttling: do not delay, resuming now");
             on_resume(this);
         } else {
             ++stats().throttled_base_writes;
             tracing::trace(trace, "Delaying user write due to view update backlog {}/{} by {}us",
+                          backlog.current, backlog.max, delay.count());
+            slogger.trace("Delaying user write due to view update backlog {}/{} by {}us",
                           backlog.current, backlog.max, delay.count());
             // Waited on indirectly.
             (void)sleep_abortable<seastar::steady_clock_type>(delay).finally([self = shared_from_this(), on_resume = std::forward<Func>(on_resume)] {
@@ -1323,6 +1326,7 @@ query::max_result_size storage_proxy::get_max_result_size(const query::partition
 }
 
 bool storage_proxy::need_throttle_writes() const {
+    slogger.trace("Queue status: background_write_bytes:{} queued_write_bytes:{}", get_global_stats().background_write_bytes, get_global_stats().queued_write_bytes);
     return get_global_stats().background_write_bytes > _background_write_throttle_threahsold || get_global_stats().queued_write_bytes > 6*1024*1024;
 }
 
