@@ -442,10 +442,12 @@ public:
              _cl_achieved = true;
             delay(get_trace_state(), [] (abstract_write_response_handler* self) {
                 if (self->_proxy->need_throttle_writes()) {
+                    slogger.trace("Throttled needed on (mutation handled: {}): background_write_bytes:{} queued_write_bytes:{}", self->_id, self->_proxy->get_global_stats().background_write_bytes, self->_proxy->get_global_stats().queued_write_bytes);
                     self->_throttled = true;
                     self->_proxy->_throttled_writes.push_back(self->_id);
                     ++self->_stats.throttled_writes;
                 } else {
+                    slogger.trace("Unthrottled (mutation handled: {})", self->_id);
                     self->unthrottle();
                 }
             });
@@ -464,7 +466,7 @@ public:
     }
     void on_timeout() {
         if (_cl_achieved) {
-            slogger.trace("Write is not acknowledged by {} replicas after achieving CL", get_targets());
+            slogger.trace("Write {} is not acknowledged by {} replicas after achieving CL (throttled?:{})", _id, get_targets(), _throttled);
         }
         _error = error::TIMEOUT;
         // We don't delay request completion after a timeout, but its possible we are currently delaying.
@@ -499,6 +501,7 @@ public:
     void check_for_early_completion() {
         if (_all_failures == _targets.size()) {
             // leftover targets are all reported error, so nothing to wait for any longer
+            slogger.trace("Write {} early completion because of failure", _id);
             timeout_cb();
         }
     }
@@ -1326,7 +1329,6 @@ query::max_result_size storage_proxy::get_max_result_size(const query::partition
 }
 
 bool storage_proxy::need_throttle_writes() const {
-    slogger.trace("Queue status: background_write_bytes:{} queued_write_bytes:{}", get_global_stats().background_write_bytes, get_global_stats().queued_write_bytes);
     return get_global_stats().background_write_bytes > _background_write_throttle_threahsold || get_global_stats().queued_write_bytes > 6*1024*1024;
 }
 
@@ -1334,6 +1336,7 @@ void storage_proxy::unthrottle() {
    while(!need_throttle_writes() && !_throttled_writes.empty()) {
        auto id = _throttled_writes.front();
        _throttled_writes.pop_front();
+       slogger.trace("Queue status on storage_proxy: poped {} (background_write_bytes:{} queued_write_bytes:{})", id, get_global_stats().background_write_bytes, get_global_stats().queued_write_bytes);
        auto it = _response_handlers.find(id);
        if (it != _response_handlers.end()) {
            it->second->unthrottle();
