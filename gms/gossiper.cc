@@ -1869,9 +1869,11 @@ future<> gossiper::start_gossiping(int generation_nbr, std::map<application_stat
             _enabled = true;
             _nr_run = 0;
             _scheduled_gossip_task.arm(INTERVAL);
-            return container().invoke_on_all([] (gms::gossiper& g) {
+            container().invoke_on_all([] (gms::gossiper& g) {
                 logger.debug("failure_detector_loop: gossip is enabled");
                 g._enabled = true;
+            }).get();
+            return container().invoke_on_all([] (gms::gossiper& g) {
                 g._failure_detector_loop_done = g.failure_detector_loop();
             });
         });
