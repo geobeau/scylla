@@ -766,6 +766,7 @@ future<> gossiper::failure_detector_loop_for_node(gms::inet_address node, int64_
     auto diff = std::chrono::milliseconds(0);
     auto echo_interval = std::chrono::milliseconds(2000);
     auto max_duration = echo_interval + std::chrono::milliseconds(_cfg.failure_detector_timeout_in_ms());
+    logger.debug("failure_detector_loop: if enabled ({}) will send echo to node {}, status = started", is_enabled(), node);
     while (is_enabled()) {
         bool failed = false;
         try {
@@ -1869,6 +1870,7 @@ future<> gossiper::start_gossiping(int generation_nbr, std::map<application_stat
             _nr_run = 0;
             _scheduled_gossip_task.arm(INTERVAL);
             return container().invoke_on_all([] (gms::gossiper& g) {
+                logger.debug("failure_detector_loop: gossip is enabled");
                 g._enabled = true;
                 g._failure_detector_loop_done = g.failure_detector_loop();
             });
@@ -2153,6 +2155,7 @@ future<> gossiper::do_stop_gossiping() {
         logger.info("Disable and wait for gossip loop started");
         // Set disable flag and cancel the timer makes sure gossip loop will not be scheduled
         container().invoke_on_all([] (gms::gossiper& g) {
+            logger.debug("failure_detector_loop: gossip is disabled");
             g._enabled = false;
         }).get();
         _scheduled_gossip_task.cancel();
