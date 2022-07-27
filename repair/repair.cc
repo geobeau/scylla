@@ -598,11 +598,14 @@ size_t repair_info::ranges_size() {
 // Repair a single local range, multiple column families.
 // Comparable to RepairSession in Origin
 future<> repair_info::repair_range(const dht::token_range& range, utils::UUID table_id) {
+    rlogger.info("Repair range (before check of ops)");
     check_in_shutdown();
     check_in_abort();
     ranges_index++;
+    rlogger.info("Repair range (before neighbors)");
     repair_neighbors neighbors = get_repair_neighbors(range);
     return do_with(std::move(neighbors.all), std::move(neighbors.mandatory), [this, range, table_id] (auto& neighbors, auto& mandatory_neighbors) {
+      rlogger.info("Repair range (in do with)");
       auto live_neighbors = boost::copy_range<std::vector<gms::inet_address>>(neighbors |
                     boost::adaptors::filtered([this] (const gms::inet_address& node) { return gossiper.is_alive(node); }));
       for (auto& node : mandatory_neighbors) {
@@ -617,6 +620,7 @@ future<> repair_info::repair_range(const dht::token_range& range, utils::UUID ta
                     node, keyspace, mandatory_neighbors)));
            }
       }
+      rlogger.info("Repair range (after mandatory_neighbors)");
       if (live_neighbors.size() != neighbors.size()) {
             nr_failed_ranges++;
             auto status = live_neighbors.empty() ? "skipped" : "partial";
@@ -934,8 +938,11 @@ static future<> do_repair_ranges(lw_shared_ptr<repair_info> ri) {
         rlogger.info("repair[{}]: Started to repair {} out of {} tables in keyspace={}, table={}, table_id={}, repair_reason={}",
                 ri->id.uuid, idx + 1, ri->table_ids.size(), ri->keyspace, table_name, table_id, ri->reason);
         co_await parallel_for_each(ri->ranges, [ri, table_id] (auto&& range) {
+            rlogger.info("repair[{}]: Waiting to acquire semaphore for repair", ri->id.uuid);
             return with_semaphore(ri->rs.repair_tracker().range_parallelism_semaphore(), 1, [ri, &range, table_id] {
+                rlogger.info("repair[{}]: semaphore acquired for repair for repair", ri->id.uuid);
                 return ri->repair_range(range, table_id).then([ri] {
+                    rlogger.info("repair[{}]: range done", ri->id.uuid);
                     if (ri->reason == streaming::stream_reason::bootstrap) {
                         ri->rs.get_metrics().bootstrap_finished_ranges++;
                     } else if (ri->reason == streaming::stream_reason::replace) {

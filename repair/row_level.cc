@@ -1490,10 +1490,12 @@ public:
         // Murmur3 is appropriate because that's the only supported partitioner at
         // the time this change is introduced.
         sstring remote_partitioner_name = "org.apache.cassandra.dht.Murmur3Partitioner";
+        rlogger.debug("row_level: Sending message to {}", remote_node);
         return _messaging.send_repair_row_level_start(msg_addr(remote_node),
                 _repair_meta_id, ks_name, cf_name, std::move(range), _algo, _max_row_buf_size, _seed,
                 _master_node_shard_config.shard, _master_node_shard_config.shard_count, _master_node_shard_config.ignore_msb,
                 remote_partitioner_name, std::move(schema_version), reason).then([ks_name, cf_name] (rpc::optional<repair_row_level_start_response> resp) {
+            rlogger.debug("row_level: message sent");
             if (resp && resp->status == repair_row_level_start_status::no_such_column_family) {
                 return make_exception_future<>(replica::no_such_column_family(ks_name, cf_name));
             } else {
@@ -2795,14 +2797,18 @@ public:
 
             std::vector<gms::inet_address> nodes_to_stop;
             nodes_to_stop.reserve(master.all_nodes().size());
+            rlogger.debug("row_level: sending row repair start to {}", master.all_nodes().size());
             try {
                 parallel_for_each(master.all_nodes(), [&, this] (repair_node_state& ns) {
                     const auto& node = ns.node;
                     ns.state = repair_state::row_level_start_started;
+                    rlogger.debug("row_level: Sending to {}: start", node);
                     return master.repair_row_level_start(node, _ri.keyspace, _cf_name, _range, schema_version, _ri.reason).then([&] () {
+                        rlogger.debug("row_level: Sending to {}: done", node);
                         ns.state = repair_state::row_level_start_finished;
                         nodes_to_stop.push_back(node);
                         ns.state = repair_state::get_estimated_partitions_started;
+                        rlogger.debug("row_level: get_estimated_partitions to {}: start", node);
                         return master.repair_get_estimated_partitions(node).then([this, node, &ns] (uint64_t partitions) {
                             ns.state = repair_state::get_estimated_partitions_finished;
                             rlogger.trace("Get repair_get_estimated_partitions for node={}, estimated_partitions={}", node, partitions);
@@ -2811,6 +2817,7 @@ public:
                     });
                 }).get();
 
+                rlogger.debug("row_level: started all repairs, now repair_set_estimated_partitions");
                 parallel_for_each(master.all_nodes(), [&, this] (repair_node_state& ns) {
                     const auto& node = ns.node;
                     rlogger.trace("Get repair_set_estimated_partitions for node={}, estimated_partitions={}", node, _estimated_partitions);
@@ -2819,20 +2826,25 @@ public:
                         ns.state = repair_state::set_estimated_partitions_finished;
                     });
                 }).get();
-
+                rlogger.debug("row_level: repair_set_estimated_partitions done");
                 while (true) {
+                    rlogger.trace("row_level: negotiate_sync_boundary");
                     auto status = negotiate_sync_boundary(master);
                     if (status == op_status::next_round) {
                         continue;
                     } else if (status == op_status::all_done) {
                         break;
                     }
+                    rlogger.trace("row_level: get_missing_rows_from_follower_nodes");
                     status = get_missing_rows_from_follower_nodes(master);
                     if (status == op_status::next_round) {
                         continue;
                     }
+                    rlogger.trace("row_level: send_missing_rows_to_follower_nodes");
                     send_missing_rows_to_follower_nodes(master);
+                    rlogger.trace("row_level: send_missing_rows_to_follower_nodes/done");
                 }
+                rlogger.trace("row_level: seems to be done");
             } catch (replica::no_such_column_family& e) {
                 table_dropped = true;
                 rlogger.warn("repair id {} on shard {}, keyspace={}, cf={}, range={}, got error in row level repair: {}",
@@ -2844,7 +2856,7 @@ public:
                 // In case the repair process fail, we need to call repair_row_level_stop to clean up repair followers
                 _failed = true;
             }
-
+            rlogger.debug("row_level: set_repair_state for each");
             parallel_for_each(nodes_to_stop, [&] (const gms::inet_address& node) {
                 master.set_repair_state(repair_state::row_level_stop_started, node);
                 return master.repair_row_level_stop(node, _ri.keyspace, _cf_name, _range).then([node, &master] {
